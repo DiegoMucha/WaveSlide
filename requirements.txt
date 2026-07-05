@@ -1,13 +1,19 @@
+fastapi[standard]
 ipython
 jupyterlab
 matplotlib
+mediapipe
 mkdocs
 notebook
 numpy
+opencv-python
 pandas
 pip
+pyautogui
 pytest
 python-dotenv
 ruff
 scikit-learn
+tensorflow
+uvicorn
 -e .

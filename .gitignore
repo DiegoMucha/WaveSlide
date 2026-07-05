@@ -1,8 +1,16 @@
 # Data
 /data/**
+!/data/raw/
+!/data/raw/.gitkeep
+!/data/interim/
+!/data/interim/.gitkeep
+!/data/processed/
+!/data/processed/.gitkeep
 
 # Model and analysis artifacts
 /models/**
+!/models/.gitkeep
+!/models/README.md
 /reports/figures/**
 
 # Mac OS-specific storage files
