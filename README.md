@@ -8,7 +8,7 @@ The frontend is not implemented yet, but the backend already exposes an HTTP/Web
 
 - Python 3.10+
 - A webcam
-- A trained Keras gesture model for real inference
+- A trained TFLite gesture model and MediaPipe hand landmarker for real inference
 - Node.js and npm for the future frontend
 
 For development before the model or frontend is ready, use simulation mode.
@@ -34,27 +34,28 @@ This installs the package in editable mode because `requirements.txt` includes:
 -e .
 ```
 
-After installation, these commands should be available:
+After installation, FastAPI should be available:
 
 ```bash
 fastapi --help
-waveslide --help
 ```
 
 ## Model Setup
 
-The backend expects the trained model at:
+The backend expects these model files by default:
 
 ```bash
-models/gesture_model.keras
+models/WaveSlideV1.tflite
+models/hand_landmarker.task
 ```
 
 The current model contract is:
 
-- TensorFlow/Keras model
+- TFLite gesture classifier
+- MediaPipe Tasks hand landmarker used first to create the hand bounding box
 - Input: RGB batch shaped `(1, 224, 224, 3)`
-- Labels by output index: `call`, `fist`, `like`, `two_up`
-- Output: softmax probabilities for the four labels
+- Labels by output index: `call`, `fist`, `like`, `two_up`, `unknown`
+- Output: softmax probabilities for the five labels
 
 Real model files are ignored by Git. Keep only lightweight files like `models/.gitkeep` and `models/README.md` in the repo.
 
@@ -75,27 +76,21 @@ http://127.0.0.1:8000/docs
 Run with the real model later:
 
 ```bash
-WAVESLIDE_MODEL_PATH=models/gesture_model.keras fastapi dev src/waveslide/api.py
+WAVESLIDE_MODEL_PATH=models/WaveSlideV1.tflite fastapi dev src/waveslide/api.py
 ```
 
 Useful environment variables:
 
 ```bash
-WAVESLIDE_MODEL_PATH=models/gesture_model.keras
+WAVESLIDE_MODEL_PATH=models/WaveSlideV1.tflite
+WAVESLIDE_HAND_LANDMARKER_PATH=models/hand_landmarker.task
 WAVESLIDE_SIMULATE=true
 WAVESLIDE_CAMERA_INDEX=0
-WAVESLIDE_CONFIDENCE=0.70
+WAVESLIDE_CONFIDENCE=0.90
+WAVESLIDE_PREDICTION_INTERVAL_MS=100
 WAVESLIDE_STABLE_FRAMES=4
 WAVESLIDE_COOLDOWN_SECONDS=1.20
 ```
-
-The project also exposes a packaged helper command:
-
-```bash
-waveslide-api --host 127.0.0.1 --port 8000 --simulate
-```
-
-Use `fastapi dev` for normal development and `waveslide-api` only if you want the project-specific wrapper.
 
 ## Backend API
 
@@ -124,24 +119,26 @@ Example event:
 
 ## Run The Local Engine Directly
 
-The CLI can run the engine without the HTTP API:
+Run the engine script without the HTTP API:
 
 ```bash
-waveslide --model models/gesture_model.keras --preview
+python scripts/run_engine.py
 ```
+
+Edit the constants at the top of `scripts/run_engine.py` to change model path, camera, threshold, prediction interval, and preview settings.
 
 Press `q` in the preview window to stop.
 
-Use simulation mode without camera/model dependencies:
+Use simulation mode without camera/model dependencies by setting this in `scripts/run_engine.py`:
 
-```bash
-waveslide --simulate
+```python
+SIMULATE = True
 ```
 
-Disable keyboard control while testing:
+Disable keyboard control while testing by setting:
 
-```bash
-waveslide --model models/gesture_model.keras --preview --no-control
+```python
+CONTROL_PRESENTATION = False
 ```
 
 ## Test A TFLite Model In Real Time
@@ -155,23 +152,23 @@ models/WaveSlideV1.tflite
 Run the webcam tester:
 
 ```bash
-waveslide-tflite-test --model models/WaveSlideV1.tflite --threshold 0.7
+python scripts/test_realtime.py
 ```
 
-By default, this uses `direct` mode: the full camera frame is treated as if it were already the hand bounding-box image. The frame is resized with padding, converted from BGR to RGB, converted to `float32`, and then sent to the TFLite model.
+By default, this uses `mediapipe` mode: the camera frame goes through `models/hand_landmarker.task`, the hand landmarks are converted into a bounding box, the crop is padded to 224x224, converted from BGR to RGB, converted to `float32`, and then sent to the TFLite model. Detection and classification run every 100 ms by default so the camera preview stays responsive.
 
-The preview window shows the top gesture only when its probability is at least `0.7`. If the best prediction is below that threshold, it shows `Uncertain`.
+The preview window shows the top gesture only when its probability is at least `0.90`. If the best prediction is below that threshold, it shows `Uncertain`.
 
-Show all class probabilities in the terminal:
+Show all class probabilities in the terminal by setting this in `scripts/test_realtime.py`:
 
-```bash
-waveslide-tflite-test --model models/WaveSlideV1.tflite --threshold 0.7 --show-probs
+```python
+SHOW_PROBS_IN_TERMINAL = True
 ```
 
-Later, to test with MediaPipe hand cropping:
+To bypass MediaPipe temporarily and test the classifier on the full frame, set:
 
-```bash
-waveslide-tflite-test --model models/WaveSlideV1.tflite --threshold 0.7 --mode mediapipe
+```python
+MODE = "direct"
 ```
 
 Press `q` in the preview window to stop.

@@ -9,10 +9,5 @@ description = "Gesture-controlled presentation backend."
 readme = "README.md"
 requires-python = ">=3.10"
 
-[project.scripts]
-waveslide = "waveslide.cli:main"
-waveslide-api = "waveslide.api:main"
-waveslide-tflite-test = "waveslide.tflite_realtime:main"
-
 [tool.setuptools.packages.find]
 where = ["src"]

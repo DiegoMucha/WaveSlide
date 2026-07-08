@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from time import monotonic
 from typing import Any
 
 import numpy as np
@@ -17,8 +19,10 @@ class BoundingBox:
 class MediaPipeHandDetector:
     def __init__(
         self,
+        hand_landmarker_path: Path | str = Path("models/hand_landmarker.task"),
         min_detection_confidence: float = 0.60,
         min_tracking_confidence: float = 0.50,
+        min_hand_presence_confidence: float = 0.50,
     ) -> None:
         try:
             import mediapipe as mp
@@ -27,22 +31,42 @@ class MediaPipeHandDetector:
                 "mediapipe is required to detect hands. Install project requirements first."
             ) from exc
 
-        self._hands = mp.solutions.hands.Hands(
-            static_image_mode=False,
-            max_num_hands=1,
-            min_detection_confidence=min_detection_confidence,
+        self._mp = mp
+        self._hand_landmarker_path = Path(hand_landmarker_path)
+        if not self._hand_landmarker_path.exists():
+            raise FileNotFoundError(
+                f"MediaPipe hand landmarker model not found: {self._hand_landmarker_path}"
+            )
+
+        base_options = mp.tasks.BaseOptions(
+            model_asset_path=str(self._hand_landmarker_path)
+        )
+        options = mp.tasks.vision.HandLandmarkerOptions(
+            base_options=base_options,
+            running_mode=mp.tasks.vision.RunningMode.VIDEO,
+            num_hands=1,
+            min_hand_detection_confidence=min_detection_confidence,
+            min_hand_presence_confidence=min_hand_presence_confidence,
             min_tracking_confidence=min_tracking_confidence,
         )
+        self._landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
+        self._start_time = monotonic()
+        self._last_timestamp_ms = -1
 
     def detect(self, frame_bgr: np.ndarray) -> BoundingBox | None:
         import cv2
 
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        result = self._hands.process(frame_rgb)
-        if not result.multi_hand_landmarks:
+        mp_image = self._mp.Image(
+            image_format=self._mp.ImageFormat.SRGB,
+            data=frame_rgb,
+        )
+        timestamp_ms = self._next_timestamp_ms()
+        result = self._landmarker.detect_for_video(mp_image, timestamp_ms)
+        if not result.hand_landmarks:
             return None
 
-        landmarks = result.multi_hand_landmarks[0].landmark
+        landmarks = result.hand_landmarks[0]
         xs = [point.x for point in landmarks]
         ys = [point.y for point in landmarks]
         x1 = max(0.0, min(xs))
@@ -52,7 +76,14 @@ class MediaPipeHandDetector:
         return BoundingBox(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
 
     def close(self) -> None:
-        self._hands.close()
+        self._landmarker.close()
+
+    def _next_timestamp_ms(self) -> int:
+        timestamp_ms = int((monotonic() - self._start_time) * 1000)
+        if timestamp_ms <= self._last_timestamp_ms:
+            timestamp_ms = self._last_timestamp_ms + 1
+        self._last_timestamp_ms = timestamp_ms
+        return timestamp_ms
 
 
 def crop_from_bbox(
@@ -115,14 +146,15 @@ def prepare_model_input(crop_bgr: np.ndarray, target_size: int = 224) -> np.ndar
     return np.expand_dims(crop_rgb.astype(np.float32), axis=0)
 
 
-def draw_status(frame: np.ndarray, text: str, bbox: BoundingBox | None = None) -> Any:
+def draw_status(
+    frame: np.ndarray,
+    text: str,
+    bbox: BoundingBox | None = None,
+    details: tuple[str, ...] = (),
+) -> Any:
     import cv2
 
-    if bbox is not None:
-        h, w = frame.shape[:2]
-        p1 = (int(bbox.x * w), int(bbox.y * h))
-        p2 = (int((bbox.x + bbox.width) * w), int((bbox.y + bbox.height) * h))
-        cv2.rectangle(frame, p1, p2, (0, 255, 0), 2)
+    draw_bbox(frame, bbox)
 
     cv2.putText(
         frame,
@@ -134,4 +166,28 @@ def draw_status(frame: np.ndarray, text: str, bbox: BoundingBox | None = None) -
         2,
         cv2.LINE_AA,
     )
+    for index, line in enumerate(details):
+        cv2.putText(
+            frame,
+            line,
+            (16, 64 + index * 28),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.62,
+            (0, 255, 0),
+            2,
+            cv2.LINE_AA,
+        )
+    return frame
+
+
+def draw_bbox(frame: np.ndarray, bbox: BoundingBox | None = None) -> Any:
+    if bbox is None:
+        return frame
+
+    import cv2
+
+    h, w = frame.shape[:2]
+    p1 = (int(bbox.x * w), int(bbox.y * h))
+    p2 = (int((bbox.x + bbox.width) * w), int((bbox.y + bbox.height) * h))
+    cv2.rectangle(frame, p1, p2, (0, 255, 0), 2)
     return frame

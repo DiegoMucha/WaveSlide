@@ -42,7 +42,7 @@ class KeyboardPresentationController:
 @dataclass
 class GestureActionDebouncer:
     gesture_actions: dict[str, str]
-    min_confidence: float = 0.70
+    min_confidence: float = 0.90
     stable_frames: int = 4
     cooldown_seconds: float = 1.20
 
